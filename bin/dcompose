@@ -1,0 +1,12 @@
+#!/bin/bash
+# This command is a wrapper to `docker-compose` using configurations in ./docker/
+# All arguments are passed as extra argument to docker-compose
+#
+# Example: start the docker-compose environment in the background
+# ```
+# bin/dcompose up -d
+# ````
+
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+
+(cd "${root_path}/docker" && docker-compose -f docker-compose.yml "$@")

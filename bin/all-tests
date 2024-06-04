@@ -1,0 +1,24 @@
+#!/bin/bash
+# This command prepares docker environment and runs all tests on the bundle
+
+set -eux -o pipefail
+
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+export PICTURE_ROOT_PATH="../tests/Fixtures/App/Pictures"
+
+# Start docker compose services
+"${root_path}/bin/dcompose" up -d
+
+# Validate and install php composer
+"${root_path}/bin/dcompose" exec -T php composer validate --strict --no-check-lock --no-interaction
+"${root_path}/bin/dcompose" exec -T php composer install --prefer-dist --no-progress --no-suggest
+
+# Prepare picture cache path
+"${root_path}/bin/dcompose" exec -T php mkdir -p build/pictures
+"${root_path}/bin/dcompose" exec -T php chmod -R u+rwx build/pictures
+
+# Run tests
+"${root_path}/bin/dcompose" exec -T php sh -c 'export SYMFONY_DEPRECATIONS_HELPER="weak" && vendor/bin/simple-phpunit'
+
+# Stop services
+"${root_path}/bin/dcompose" down

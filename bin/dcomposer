@@ -1,0 +1,12 @@
+#!/bin/bash
+# This command is a wrapper to run PHP composer commands with `docker-compose` using configurations in ./docker/
+#
+# Example: install composer vendors
+# ```
+# bin/dcomposer install
+# ````
+
+
+root_path="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
+
+"${root_path}/bin/dcompose" exec php composer "$@"

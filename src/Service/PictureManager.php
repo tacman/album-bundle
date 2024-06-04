@@ -47,7 +47,6 @@ class PictureManager
      * @param int    $width
      * @param int    $height
      * @param string $hash
-     * @param string $targetRelativePath
      * @param int    $quality
      *
      * @return string

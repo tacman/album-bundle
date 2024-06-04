@@ -1,0 +1,53 @@
+version: '3.7'
+services:
+    db:
+        image: mysql
+        command: ["--default-authentication-plugin=mysql_native_password"]
+        restart: always
+        volumes:
+            - ./logs/mysql:/var/lib/mysql
+#            - ./logs/mysql-dump:/docker-entrypoint-initdb.d
+        ports:
+            - "3306:3306"
+        environment:
+            MYSQL_ROOT_PASSWORD: root
+            MYSQL_DATABASE: symfony
+            MYSQL_USER: symfony
+            MYSQL_PASSWORD: symfony
+    php:
+        build: ./php-fpm
+        ports:
+            - "9000:9001"
+        volumes:
+            - ..:/var/www/symfony:cached
+            - ${PICTURE_ROOT_PATH:-./tests/Fixtures/App/Pictures}:/pictures
+            - ./logs/symfony:/var/www/symfony/var/log:cached
+        links:
+            - db
+    nginx:
+        build: ./nginx
+        ports:
+            - "80:80"
+        links:
+            - php
+        volumes:
+            - ..:/var/www/symfony:cached
+            - ${PICTURE_ROOT_PATH:-./tests/Fixtures/App/Pictures}:/pictures
+            - ./logs/nginx:/var/log/nginx:cached
+    encore:
+        image: node:10-alpine
+        volumes:
+            - ..:/var/www/symfony:cached
+        ports:
+            - "${DEV_SERVER_PORT:-8080}:8080"
+        working_dir: /var/www/symfony
+        command: ["yarn", "watch"]
+    elk:
+        image: willdurand/elk
+        ports:
+            - "81:80"
+        volumes:
+            - ./elk/logstash:/etc/logstash:cached
+            - ./elk/logstash/patterns:/opt/logstash/patterns:cached
+            - ./logs/symfony:/var/www/symfony/var/log:cached
+            - ./logs/nginx:/var/log/nginx:cached

@@ -109,7 +109,7 @@ class FolderManager
 
             // TODO: Extract all this logic to file handlers, allow to extend with custom handlers
             $extension = strtolower(pathinfo($file['filename'], PATHINFO_EXTENSION));
-            if ('jpg' === $extension || 'jpeg' === $extension || 'png' === $extension) {
+            if ('jpg' === $extension || 'jpeg' === $extension || 'png' === $extension || 'heic' === $extension) {
                 // Nothing to do
             } elseif ('mp4' === $extension || 'mov' === $extension || 'mkv' === $extension || 'avi' === $extension) {
                 // Check previews

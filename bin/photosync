@@ -1,21 +1,38 @@
 #!/usr/bin/env bash
 # 1st argument: path to configuration file (default ~/.photosync)
-set -euo pipefail
-CONFIG_PATH=${1:-"$HOME/.photosync"}
+set -euf -o pipefail
+config_path=${1:-"${HOME}/.photosync"}
 
-if [ -f $CONFIG_PATH ]
+if [ -f "${config_path}" ]
 then
-    . $CONFIG_PATH
+    . "${config_path}"
 else
-    cat << EOT > ~/.photosync
+    cat << EOT > "${config_path}"
 # Absolute path to the local directory
 LOCAL_ROOT=""
+
 # Absolute path to the remote directory
 REMOTE_ROOT=""
+
 # Remote server hostname
 REMOTE_HOST=""
-# Unison lost hostname (used only to keep consistent unison comparison)
+
+# Unison local hostname (used only to keep consistent unison comparison)
 UNISON_LOCALHOST_ID=""
+
+# Unison FAT option
+#  If local folder is on a FAT partition, set to "-fat"
+#  UNISON_EXTRA_OPTS=( '-fat' '-ignore' 'Name Icon' )
+UNISON_EXTRA_OPTS=()
+
+# Dropbox module
+MODULE_DROPBOX_DISABLED=0
+
+# Dropbox module: Origin of dropbox photos
+MODULE_DROPBOX_UPLOAD_DIR="${HOME}/Dropbox/Camera Uploads"
+
+# Dropbox module: Destination of dropbox photos within LOCAL_ROOT
+MODULE_DROPBOX_TARGET_DIR="Camera Uploads"
 
 # !!! REMOVE THESE LINES ONCE THE SETTINGS ARE CONFIGURED
 echo "The first argument must either be a configuration file,"
@@ -23,80 +40,87 @@ echo " or you must edit the default configuration at ~/.photosync"
 exit 1
 EOT
 
-    . ~/.photosync
+    . "${config_path}"
     exit 1
 fi
 
-if [ "$LOCAL_ROOT" != "" ] && [ -d "$LOCAL_ROOT" ]
+if [ "${LOCAL_ROOT}" != "" ] && [ -d "${LOCAL_ROOT}" ]
 then
-   echo "Source: $LOCAL_ROOT"
+   echo "Source: ${LOCAL_ROOT}"
 else
-   echo "LOCAL_ROOT must be a valid directory in $CONFIG_PATH!"
+   echo "LOCAL_ROOT must be a valid directory in $config_path!"
    exit 1
 fi
 
-if [ "$REMOTE_HOST" == "" ]
+if [ "${REMOTE_HOST}" == "" ]
 then
    echo "2nd argument must be a valid remote hostname, accessible by ssh"
    exit 1
 else
-    PING=$(ssh -o ConnectTimeout=2 "$REMOTE_HOST" "[ -d '$REMOTE_ROOT' ] && echo 1" 2> /dev/null)
+    PING=$(ssh -o ConnectTimeout=2 "${REMOTE_HOST}" "[ -d '${REMOTE_ROOT}' ] && echo 1" 2> /dev/null)
     if [ "1" != "$PING" ]
     then
-        PING=$(ssh -o ConnectTimeout=2 "$REMOTE_HOST" 'echo 1' 2> /dev/null)
+        PING=$(ssh -o ConnectTimeout=2 "${REMOTE_HOST}" 'echo 1' 2> /dev/null)
         if [ "1" != "$PING" ]
         then
-            echo "Could not connect to $REMOTE_HOST by ssh. Try running 'ssh $REMOTE_HOST'"
+            echo "Could not connect to ${REMOTE_HOST} by ssh. Try running 'ssh ${REMOTE_HOST}'"
         else
-            echo "No folder $REMOTE_ROOT on $REMOTE_HOST"
+            echo "No folder ${REMOTE_ROOT} on ${REMOTE_HOST}"
             echo "3rd argument must be a valid directory path on the remote server"
         fi
         exit 1
     fi
 fi
 
-if [ "$UNISON_LOCALHOST_ID" != "" ]
+if [ "${UNISON_LOCALHOST_ID}" != "" ]
 then
-    export UNISONLOCALHOST="$UNISON_LOCALHOST_ID"
+    export UNISONLOCALHOST="${UNISON_LOCALHOST_ID}"
 fi
 
+cleanup () {
+  exit_code="${1}"
+  if [[ "${exit_code}" -gt 0 ]]; then
+    echo "ERROR running photosync with exit code [${exit_code}]"
+    exit "${exit_code}"
+  fi
+}
+trap 'cleanup "${?}"' ERR
 
-# First argument is the value in the file
-countModules () {
-  grep $1 $SCRIPTDIR/photosync-module-*.sh.run | wc -l
+countModulesWithState () {
+  lookup_value="${1}"
+  (find "${script_dir}" -name 'photosync-module-*.sh.run' -exec grep "${lookup_value}" {} \; || true) | wc -l
 }
 
 # Execute sub-modules
-SCRIPTDIR=`dirname $0`
-rm $SCRIPTDIR/photosync-module-*.sh.run 2>/dev/null || echo "No module run files to remove"
-find $SCRIPTDIR -name 'photosync-module-*.sh' | while read module; do
+script_path="$( readlink -n "${BASH_SOURCE[0]}" )"
+script_dir="${script_path%/*}"
+
+find "${script_dir}" -name 'photosync-module-*.sh.run' -exec rm {} \;
+find "${script_dir}" -name 'photosync-module-*.sh' | while read module; do
   echo "executing ${module}"
   echo "1" > "${module}.run"
   sleep 1
-  ( (. ${module} "$LOCAL_ROOT" >> ~/.photosync.log 2>&1) || echo "Failed executing ${module}"; echo "0" > "${module}.run") &
+  ( (. "${module}" "${LOCAL_ROOT}" >> ~/.photosync.log 2>&1) || echo "Failed executing ${module}"; echo "0" > "${module}.run") &
 done
 
 # Prepare synchronisation
-REMOTE_URI="ssh://$REMOTE_HOST/$REMOTE_ROOT"
-FAT=""
-mount=$(df "$LOCAL_ROOT" | grep /dev | grep -Eo '/Volumes/.*' | cut -f 3 -d '/')
-diskutil list | grep "$mount" | grep "FAT" && FAT="-fat"
+REMOTE_URI="ssh://${REMOTE_HOST}/${REMOTE_ROOT}"
 
-unison -ui text -batch $FAT "$LOCAL_ROOT" "$REMOTE_URI"
+unison -ui text -batch "${UNISON_EXTRA_OPTS[@]}" "${LOCAL_ROOT}" "$REMOTE_URI"
 
 # Wait for modules to finish running
-while [ $(countModules 1) -gt '0' ]
+while [ "$(countModulesWithState 1)" -gt '0' ]
 do
-  echo -en "\r Waiting for $(countModules 1) modules to complete..."
+  echo -en "\r Waiting for $(countModulesWithState 1) modules to complete..."
   sleep 2;
 done
 
 # Re-run synchronisation
-if [ $(countModules 0) -gt '0' ]
+if [ "$(countModulesWithState 0)" -gt '0' ]
 then
-  echo -e "$(countModules 0) modules finished... Rerunning sync"
-  rm $SCRIPTDIR/photosync-module-*.sh.run
-  unison -ui text -batch $FAT "$LOCAL_ROOT" "$REMOTE_URI"
+  echo -e "$(countModulesWithState 0) modules finished... Rerunning sync"
+  find "${script_dir}" -name 'photosync-module-*.sh.run' -exec rm {} \;
+  unison -ui text -batch "${UNISON_EXTRA_OPTS[@]}" "${LOCAL_ROOT}" "$REMOTE_URI"
 fi
 
 echo "All done!"
